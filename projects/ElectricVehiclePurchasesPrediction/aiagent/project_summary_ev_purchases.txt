@@ -1,0 +1,111 @@
+Competition : Kaggle - Predicting Electric Vehicle Purchases
+Target      : Will_Buy_EV (Yes = 1, No = 0; about 17.5% Yes)
+Metric      : ROC-AUC
+Data        : train_cleaned.csv (668665 rows, 14 original features, id column dropped)
+Date        : 20 September 2026
+Goal        : top 10% leaderboard (about rank 240 of about 2400 teams)
+
+
+DATASET COLUMNS
+===============
+Original (15 columns in train_cleaned.csv):
+  id, Age, Annual_Income_USD, Daily_Commute_km, Number_of_Cars_Owned,
+  Charging_Stations_Near_Home, Charging_Stations_Near_Work,
+  Environmental_Concern_Level, Gender, City_Type, Current_Car_Type,
+  Home_Charging_Possible, Subsidy_Available, Range_Anxiety_Level, Will_Buy_EV
+
+Engineered (4 columns added):
+  Income_Floor_Flag, Income_per_Car, Income_vs_City, Multi_Car_Flag
+
+
+COLUMN DESCRIPTIONS
+===================
+id                           Row identifier (0-668664). Not used as a feature.
+Age                          Age in years (25-69).
+Annual_Income_USD            Annual income in USD (30000-188549). Clipped at 30000
+                             (about 9% of rows sit exactly at the floor).
+Daily_Commute_km             Daily commute distance in km (5-98.7). Clipped at 5
+                             (about 22% of rows).
+Number_of_Cars_Owned         Cars in the household (1-4).
+Charging_Stations_Near_Home  Charging stations near home (0-14).
+Charging_Stations_Near_Work  Charging stations near work (0-19).
+Environmental_Concern_Level  Environmental concern, whole levels 1-5.
+                             Very strong signal: buy rate rises from about 0.6%
+                             at level 1 to about 52% at level 5.
+Gender                       Male (55%), Female (44%), Other (1%).
+City_Type                    Urban (43%), Suburban (38%), Rural (19%).
+Current_Car_Type             Sedan (45%), SUV (37%), Hatchback (12%), Truck (6%).
+Home_Charging_Possible       Yes (69%) / No (31%).
+Subsidy_Available            Yes (63%) / No (37%). Very strong signal: buy rate is
+                             about 0.6% without subsidy vs about 27% with subsidy.
+Range_Anxiety_Level          Low (90%), Medium (9%), High (0.3%). High anxiety
+                             almost never buys.
+Will_Buy_EV                  TARGET. Yes (17.5%) / No (82.5%).
+
+Weak signals: Age, Number_of_Cars_Owned and both charging-station counts show
+little relation to the target in this data.
+
+Engineered features (computed without the target, no leakage):
+Income_Floor_Flag   1 if Annual_Income_USD <= 30000, else 0.
+Income_per_Car      Annual_Income_USD / Number_of_Cars_Owned.
+Income_vs_City      Annual_Income_USD / mean income of the same City_Type
+                    (mean taken from TRAIN only, reused for test).
+Multi_Car_Flag      1 if Number_of_Cars_Owned >= 2, else 0.
+
+
+MODEL AND STEPS TAKEN
+=====================
+Best model: CatBoostClassifier (gradient boosting on decision trees, handles the
+6 categorical columns natively) with tuned parameters and the 4 engineered
+features. Libraries: Python, pandas, numpy, scikit-learn, CatBoost, Optuna.
+
+Steps:
+1. Cleaning + EDA: stripped whitespace in categorical columns, checked duplicates,
+   value ranges and outliers. No rows were removed (ids 0-668664 intact) and
+   there are no missing values.
+2. Model screening (100k-row sample, hold-out AUC): CatBoost 0.94007,
+   HistGradientBoosting 0.93995, LightGBM 0.93949, XGBoost 0.93943,
+   Logistic Regression 0.93874, Random Forest 0.93628 -> CatBoost selected.
+3. Hyperparameter tuning: Optuna (TPE sampler) on one stratified 80/20 hold-out,
+   with early stopping. Results below.
+4. Feature engineering: 14 candidate features tested one at a time on top of the
+   best set so far (single hold-out); 4 kept (listed above).
+5. 5-fold validation, StratifiedKFold(5, shuffle=True, random_state=42), tuned
+   parameters, early stopping (max 5000 iterations, patience 200):
+     without new features : mean AUC 0.94192 (OOF 0.94191)
+     with 4 new features  : mean AUC 0.94211 (OOF 0.94210)
+   The features scored higher in 5 of 5 folds (mean gain +0.00019).
+6. Final model: CatBoost retrained on 100% of train with a fixed number of
+   iterations (3500 suggested; [CHECK] value actually used), then predicted the
+   test set, which went through the same cleaning and feature steps as train.
+   Submission contains probabilities of "Yes".
+
+
+TUNING RESULT
+=============
+Best holdout AUC : 0.9419644141635528
+Best iteration   : 1621
+Best params      : {'learning_rate': 0.055710965281825744,
+                    'depth': 4,
+                    'l2_leaf_reg': 16.378726060483704,
+                    'random_strength': 5.418648662113677,
+                    'subsample': 0.930094231107212,
+                    'rsm': 0.689140498436157,
+                    'border_count': 254,
+                    'one_hot_max_size': 4}
+
+
+5-FOLD CV RESULT (tuned params + 4 new features)
+================================================
+fold 1: AUC=0.94088  best_iter=3087
+fold 2: AUC=0.94179  best_iter=2647
+fold 3: AUC=0.94309  best_iter=3339
+fold 4: AUC=0.94271  best_iter=3226
+fold 5: AUC=0.94207  best_iter=3455
+Mean AUC = 0.94211 +- 0.00077
+OOF AUC  = 0.94210
+
+
+LEADERBOARD
+===========
+Current ROC-AUC score at public leaderboard = 0.94175
